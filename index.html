@@ -22,8 +22,9 @@
   .mods label{display:flex;gap:7px;align-items:flex-start;margin:4px 0;font-size:13px}
   .mods input{margin-top:3px}
   .badge{display:inline-block;min-width:38px;text-align:center;padding:2px 8px;border-radius:12px;color:#fff;font-weight:700}
-  #preview{margin:10px 0;padding:8px 10px;background:#fff;border:1px solid #d9dde3;border-radius:8px;display:flex;gap:10px;align-items:center}
+  #preview{margin:10px 0;padding:8px 10px;background:#fff;border:1px solid #d9dde3;border-radius:8px;display:flex;gap:12px;align-items:center}
   #preview small{color:#52606d}
+  .pb{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:#52606d}
   button,.btn{padding:7px 11px;border:1px solid #9aa5b1;border-radius:6px;background:#fff;cursor:pointer;font-size:13px}
   button.primary{background:#1d6fb8;border-color:#1d6fb8;color:#fff}
   button.danger{color:#b42318;border-color:#e0a7a1}
@@ -46,12 +47,14 @@
 <body>
 <div id="side">
   <h1>Crossing PLTS Mapper</h1>
-  <p class="hint">High traffic volume roadways (&gt;10,000 AADT). Click the map to place a crossing, fill in the details, then Add. Or upload a CSV.</p>
+  <p class="hint">Low, medium and high traffic volume roadways. Click the map to place a crossing, fill in the details, then Add. Or upload a CSV.</p>
 
   <h2>Crossing</h2>
   <div class="grid">
     <label class="f">Name / ID<input type="text" id="name" placeholder="Crossing 1"></label>
-    <label class="f">AADT (optional)<input type="number" id="aadt" min="0" placeholder="e.g. 14000"></label>
+    <label class="f">AADT<input type="number" id="aadt" min="0" placeholder="e.g. 14000"></label>
+    <label class="f">Peak veh/min (optional)<input type="number" id="veh" min="0" step="any" placeholder="e.g. 12"></label>
+    <label class="f">Volume class<select id="vol"><option value="auto">Auto (from AADT / veh/min)</option><option>Low</option><option>Medium</option><option>High</option></select></label>
     <label class="f">Latitude<input type="number" id="lat" step="any"></label>
     <label class="f">Longitude<input type="number" id="lng" step="any"></label>
     <label class="f">Posted speed (mph)<input type="number" id="speed" min="0" value="30"></label>
@@ -59,19 +62,23 @@
     <label class="f">Median refuge<select id="median"><option>No</option><option>Yes</option></select></label>
     <label class="f">Crossing control<select id="control"><option>Uncontrolled</option><option>Controlled</option></select></label>
   </div>
-  <p class="hint" style="margin-top:4px">Controlled = stop sign, traffic signal, or PHB. Controlled crossings use the table value with no modifiers.</p>
+  <p class="hint" style="margin-top:4px">Auto volume: Low &lt;5,000 AADT or &lt;7.5 veh/min; Medium 5,000&ndash;10,000 or 7.5&ndash;15; High &gt;10,000 or &gt;15. If both are given, the higher class is used. Controlled = stop sign, signal, or PHB (no modifiers).</p>
 
   <div class="mods" id="mods">
-    <label><input type="checkbox" id="A"><span><b>A</b> Awareness treatment: in-street sign or gateway (−0.5)</span></label>
-    <label><input type="checkbox" id="R"><span><b>R</b> Raised crosswalk / intersection / speed table (−0.5)</span></label>
-    <label><input type="checkbox" id="F"><span><b>F</b> Rapid flashing beacon (−0.5)</span></label>
-    <label><input type="checkbox" id="C"><span><b>C</b> Curb extension on at least one end (−0.5)</span></label>
+    <label><input type="checkbox" id="A"><span><b>A</b> Awareness treatment: in-street sign or gateway (&minus;0.5)</span></label>
+    <label><input type="checkbox" id="R"><span><b>R</b> Raised crosswalk / intersection / speed table (&minus;0.5)</span></label>
+    <label><input type="checkbox" id="F"><span><b>F</b> Rapid flashing beacon (&minus;0.5)</span></label>
+    <label><input type="checkbox" id="C"><span><b>C</b> Curb extension on at least one end (&minus;0.5)</span></label>
     <label><input type="checkbox" id="P"><span><b>P</b> On-street parking within 50 ft (+0.5)</span></label>
-    <label><input type="checkbox" id="Y"><span><b>Y</b> Drivers routinely yield in the community (−0.5)</span></label>
-    <label><input type="checkbox" id="L"><span><b>L</b> Crosswalk lighting (recorded only; darkness stress is separate)</span></label>
+    <label><input type="checkbox" id="Y"><span><b>Y</b> Drivers routinely yield in the community (&minus;0.5)</span></label>
+    <label><input type="checkbox" id="L"><span><b>L</b> Crosswalk lighting (&minus;0.5 darkness stress)</span></label>
   </div>
 
-  <div id="preview"><span class="badge" id="pbadge">–</span><div><div id="pnote"></div><small id="pbase"></small></div></div>
+  <div id="preview">
+    <div class="pb">Daylight<span class="badge" id="pbadge">&ndash;</span></div>
+    <div class="pb">Darkness<span class="badge" id="dbadge">&ndash;</span></div>
+    <div><div id="pnote"></div><small id="pbase"></small></div>
+  </div>
 
   <div class="row">
     <button class="primary" id="saveBtn">Add crossing</button>
@@ -95,7 +102,7 @@
 
   <h2 id="count">Crossings</h2>
   <table>
-    <thead><tr><th>Name</th><th>PLTS</th><th>Notes</th></tr></thead>
+    <thead><tr><th>Name</th><th>Day</th><th>Dark</th><th>Notes</th></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
 </div>
@@ -103,51 +110,88 @@
 
 <script>
 // ==CORE START (same rules as crossing_plts_tool.py)
-const HIGH_VOLUME_AADT = 10000;
-const RULES = {
- "<=25|<=2|Yes":[2,"ACFPRY",1], "<=25|<=2|No":[3,"ACFPRY",1],
- "<=25|3|Yes":[2,"ACFPRY",1],   "<=25|3|No":[3,"ACFPR",2],
- "<=25|>=4|Yes":[3,"ACFPR",2],  "<=25|>=4|No":[4,"ACFPR",3],
- "26-30|<=2|Yes":[2,"ACFP",1],  "26-30|<=2|No":[3,"ACFP",2],
- "26-30|3|Yes":[3,"ACFP",1],    "26-30|3|No":[4,"ACFP",2],
- "26-30|>=4|Yes":[4,"ACFP",3],  "26-30|>=4|No":[4,"ACFP",3],
- "31-35|<=2|Yes":[3,"CFP",2],   "31-35|<=2|No":[4,"CFP",3],
- "31-35|3|Yes":[3,"CFP",2],     "31-35|3|No":[4,"CFP",3],
- "31-35|>=4|Yes":[4,"CFP",3],   "31-35|>=4|No":[4,"CFP",4],
- ">35|<=2|Yes":[3,"CP",2],      ">35|<=2|No":[4,"CP",3],
- ">35|3|Yes":[4,"CP",2],        ">35|3|No":[4,"CP",3],
- ">35|>=4|Yes":[4,"CP",3],      ">35|>=4|No":[4,"CP",4],
+// Row order: speed (<=25, 26-30, 31-35, >35) x lanes (<=2, 3, >=4) x median (Yes, No)
+// Each row: [uncontrolled baseline, allowed modifier letters, controlled score]
+const SB=["<=25","26-30","31-35",">35"], LB=["<=2","3",">=4"], MB=["Yes","No"];
+const CLASSES=["Low","Medium","High"];
+const TABLES = {
+    "Low": [
+      [1,"ACFPRY",1], [1,"ACFPRY",1], [2,"ACFPRY",1], [2,"ACFPR",2], [2,"ACFPR",2], [3,"ACFPR",3],
+      [1,"ACFPRY",1], [2,"ACFPR",2], [2,"ACFPR",1], [3,"ACFPR",2], [3,"ACFPR",3], [4,"ACFPR",3],
+      [2,"CFPRY",1], [2,"CFPR",2], [2,"CFPR",2], [3,"CFPR",3], [3,"CFPR",3], [4,"CFPR",4],
+      [2,"CP",2], [3,"CP",2], [3,"CP",2], [4,"CP",3], [3,"CP",3], [4,"CP",4],
+    ],
+    "Medium": [
+      [1,"ACFPRY",1], [2,"ACFPRY",1], [2,"ACFPRY",1], [3,"ACFPR",2], [2,"ACFPR",2], [3,"ACFPR",3],
+      [2,"ACFPRY",1], [3,"ACFPR",2], [3,"ACFPR",1], [4,"ACFPR",2], [3,"ACFPR",3], [4,"ACFPR",3],
+      [3,"CFP",1], [3,"CFP",2], [3,"CFP",2], [4,"CFP",3], [4,"CFP",3], [4,"CFP",4],
+      [3,"CP",2], [4,"CP",3], [3,"CP",2], [4,"CP",3], [4,"CP",3], [4,"CP",4],
+    ],
+    "High": [
+      [2,"ACFPRY",1], [3,"ACFPRY",1], [2,"ACFPRY",1], [3,"ACFPR",2], [3,"ACFPR",2], [4,"ACFPR",3],
+      [2,"ACFP",1], [3,"ACFP",2], [3,"ACFP",1], [4,"ACFP",2], [4,"ACFP",3], [4,"ACFP",3],
+      [3,"CFP",2], [4,"CFP",3], [3,"CFP",2], [4,"CFP",3], [4,"CFP",3], [4,"CFP",4],
+      [3,"CP",2], [4,"CP",3], [4,"CP",2], [4,"CP",3], [4,"CP",3], [4,"CP",4],
+    ],
 };
+// Source says: add 1 point in darkness if speed > 25 mph [and 0.5 point if 25 mph or lower?] (confirm)
+const DARK_ADD_HIGH_SPEED = 1.0, DARK_ADD_LOW_SPEED = 0.5;
+
 const speedBin = v => v<=25 ? "<=25" : v<=30 ? "26-30" : v<=35 ? "31-35" : ">35";
 const laneBin  = n => n<=2 ? "<=2" : n===3 ? "3" : ">=4";
 const yes = v => ["yes","y","true","1","t"].includes(String(v==null?"":v).trim().toLowerCase());
 const isControlled = v => { const s=String(v==null?"":v).trim().toLowerCase();
   return /^(controlled|stop|signal|phb|hybrid)/.test(s) && !s.startsWith("uncontrolled"); };
+const toNum = v => { if(v===null||v===undefined||v==="") return null;
+  const x=parseFloat(String(v).replace(/,/g,"")); return isFinite(x)?x:null; };
+
+function volumeClass(aadt,veh,override){
+  const o=String(override==null?"":override).trim().toLowerCase();
+  for(const c of CLASSES) if(o===c.toLowerCase()) return c;
+  const r=[], a=toNum(aadt), v=toNum(veh);
+  if(a!==null) r.push(a<5000?0:a<=10000?1:2);
+  if(v!==null) r.push(v<7.5?0:v<=15?1:2);
+  return r.length?CLASSES[Math.max(...r)]:null;   // if both given, the higher class is used
+}
 
 function scoreCrossing(c){
-  const speed=parseFloat(c.speed), lanes=parseFloat(c.lanes), aadt=parseFloat(c.aadt);
-  if(!isFinite(speed)||!isFinite(lanes)) return {score:null,base:null,note:"Missing/invalid speed or lanes"};
-  if(isFinite(aadt) && aadt<=HIGH_VOLUME_AADT) return {score:null,base:null,note:"Not high volume - use low-volume table"};
-  const [bu,allowed,ctrl]=RULES[`${speedBin(speed)}|${laneBin(lanes)}|${yes(c.median)?"Yes":"No"}`];
-  if(isControlled(c.control)) return {score:ctrl,base:ctrl,note:"Controlled - no modifiers"};
-  let d=0; const used=[], ignored=[];
-  for(const k of "ACFPRY"){
-    if(!c[k]) continue;
-    if(allowed.includes(k)){ d += k==="P"?0.5:-0.5; used.push(k); } else ignored.push(k);
+  const out={score:null,base:null,dark:null,volume:null,note:""};
+  const speed=toNum(c.speed), lanes=toNum(c.lanes);
+  if(speed===null||lanes===null){out.note="Missing/invalid speed or lanes";return out;}
+  const cls=volumeClass(c.aadt,c.veh,c.vol);
+  if(cls===null){out.note="Volume unknown: enter AADT, peak veh/min, or pick a volume class";return out;}
+  out.volume=cls;
+  const i=(SB.indexOf(speedBin(speed))*3+LB.indexOf(laneBin(lanes)))*2+MB.indexOf(yes(c.median)?"Yes":"No");
+  const [bu,allowed,ctrl]=TABLES[cls][i];
+  let day, note=cls+" volume";
+  if(isControlled(c.control)){
+    out.base=ctrl; day=ctrl; note+=" | Controlled - no modifiers";
+  } else {
+    let d=0; const used=[], ignored=[];
+    for(const k of "ACFPRY"){
+      if(!c[k]) continue;
+      if(allowed.includes(k)){ d += k==="P"?0.5:-0.5; used.push(k); } else ignored.push(k);
+    }
+    const adj=Math.max(-1,Math.min(1,d));
+    day=Math.min(5,Math.max(1,bu+adj));
+    out.base=bu;
+    note+=" | Mods: "+(used.length?used.join(","):"none");
+    if(adj!==d) note+=" (capped at +/-1)";
+    if(day!==bu+adj) note+=" (clamped to 1-5)";
+    if(ignored.length) note+=" | n/a for this row: "+ignored.join(",");
   }
-  const raw=bu+d, fin=Math.min(4,Math.max(1,raw));
-  let note="Mods: "+(used.length?used.join(","):"none");
-  if(fin!==raw) note+=" (clamped to 1-4)";
-  if(ignored.length) note+=" | n/a for this row: "+ignored.join(",");
-  return {score:fin,base:bu,note};
+  const add=speed>25?DARK_ADD_HIGH_SPEED:DARK_ADD_LOW_SPEED;
+  out.score=day; out.dark=Math.min(5,Math.max(1,day+add-(c.L?0.5:0))); out.note=note;
+  return out;
 }
 // ==CORE END
 
-const COLORS=["#2e7d32","#7cb342","#c0ca33","#f9a825","#fb8c00","#e64a19","#c62828"];
-const colorFor = s => s==null ? "#8d99a6" : COLORS[Math.round((s-1)*2)];
+const COLORS=["#2e7d32","#7cb342","#c0ca33","#f9a825","#fb8c00","#f4511e","#e53935","#b71c1c","#7f0000"];
+const colorFor = s => s==null ? "#8d99a6" : COLORS[Math.min(8,Math.max(0,Math.round((s-1)*2)))];
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 const $ = id => document.getElementById(id);
 const MODS="ARFCPYL";
+const fmt = s => s==null ? "–" : s;
 
 let crossings=[], nextId=1, editingId=null, tempPin=null;
 
@@ -155,16 +199,18 @@ let crossings=[], nextId=1, editingId=null, tempPin=null;
 const map=L.map("map").setView([39.8,-98.6],4);
 const esriAttr="Tiles &copy; Esri";
 const base={
-  "Streets":L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",{attribution:esriAttr,maxZoom:19}),
   "Imagery":L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{attribution:esriAttr,maxZoom:19}),
+  "Streets":L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",{attribution:esriAttr,maxZoom:19}),
   "Light gray":L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",{attribution:esriAttr,maxZoom:16}),
 };
-base["Streets"].addTo(map);
-L.control.layers(base).addTo(map);
+base["Imagery"].addTo(map);
+map.createPane("labels"); map.getPane("labels").style.zIndex=250; map.getPane("labels").style.pointerEvents="none";
+const labels=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",{attribution:esriAttr,maxZoom:19,pane:"labels"}).addTo(map);
+L.control.layers(base,{"Road labels":labels}).addTo(map);
 const group=L.layerGroup().addTo(map);
 const legend=L.control({position:"bottomright"});
 legend.onAdd=()=>{const d=L.DomUtil.create("div","legend");
-  d.innerHTML="<b>Crossing PLTS</b><br>"+[[1,"1"],[2,"2"],[3,"3"],[4,"4"]].map(([s,t])=>`<i style="background:${colorFor(s)}"></i>${t}`).join("<br>")+`<br><i style="background:#8d99a6"></i>Not scored`;return d;};
+  d.innerHTML="<b>Crossing PLTS (daylight)</b><br>"+[1,2,3,4,5].map(s=>`<i style="background:${colorFor(s)}"></i>${s}`).join("<br>")+`<br><i style="background:#8d99a6"></i>Not scored`;return d;};
 legend.addTo(map);
 
 map.on("click",e=>{
@@ -185,7 +231,7 @@ $("locBtn").onclick=()=>map.locate({setView:true,maxZoom:17});
 // ---------- form ----------
 function readForm(){
   const c={name:$("name").value.trim(),speed:$("speed").value,lanes:$("lanes").value,
-    median:$("median").value,control:$("control").value,aadt:$("aadt").value,
+    median:$("median").value,control:$("control").value,aadt:$("aadt").value,veh:$("veh").value,vol:$("vol").value,
     lat:parseFloat($("lat").value),lng:parseFloat($("lng").value)};
   MODS.split("").forEach(k=>c[k]=$(k).checked);
   if(!isFinite(c.lat)) c.lat=null; if(!isFinite(c.lng)) c.lng=null;
@@ -194,15 +240,16 @@ function readForm(){
 function writeForm(c){
   $("name").value=c.name||""; $("speed").value=c.speed; $("lanes").value=c.lanes;
   $("median").value=yes(c.median)?"Yes":"No"; $("control").value=isControlled(c.control)?"Controlled":"Uncontrolled";
-  $("aadt").value=c.aadt==null?"":c.aadt;
+  $("aadt").value=c.aadt==null?"":c.aadt; $("veh").value=c.veh==null?"":c.veh; $("vol").value=c.vol||"auto";
   $("lat").value=c.lat==null?"":c.lat; $("lng").value=c.lng==null?"":c.lng;
   MODS.split("").forEach(k=>$(k).checked=!!c[k]);
   updatePreview();
 }
 function updatePreview(){
   const r=scoreCrossing(readForm());
-  const b=$("pbadge"); b.textContent=r.score==null?"–":r.score; b.style.background=colorFor(r.score);
-  $("pnote").textContent=r.note; $("pbase").textContent=r.base==null?"":("Table base score: "+r.base);
+  $("pbadge").textContent=fmt(r.score); $("pbadge").style.background=colorFor(r.score);
+  $("dbadge").textContent=fmt(r.dark);  $("dbadge").style.background=colorFor(r.dark);
+  $("pnote").textContent=r.note; $("pbase").textContent=r.base==null?"":("Baseline (table) score: "+r.base);
 }
 document.querySelectorAll("#side input,#side select").forEach(el=>{
   if(el.type!=="file") el.addEventListener("input",updatePreview);
@@ -223,7 +270,7 @@ $("saveBtn").onclick=()=>{
     c.id=nextId++; if(!c.name) c.name="Crossing "+c.id;
     crossings.push(c); refreshMarker(c);
     clearTemp(); $("lat").value="";$("lng").value="";$("name").value="";
-    setMsg("Added "+c.name+" (PLTS "+(c.result.score==null?"not scored":c.result.score)+").");
+    setMsg("Added "+c.name+(c.result.score==null?": not scored ("+c.result.note+")":" (daylight "+c.result.score+" / darkness "+c.result.dark+")."));
   } else {
     const old=crossings.find(x=>x.id===editingId);
     Object.assign(old,c,{id:old.id}); if(!old.name) old.name="Crossing "+old.id;
@@ -247,7 +294,7 @@ function refreshMarker(c){
   if(c.marker){group.removeLayer(c.marker);c.marker=null;}
   if(c.lat==null||c.lng==null) return;
   c.marker=L.circleMarker([c.lat,c.lng],{radius:9,color:"#fff",weight:2,fillColor:colorFor(c.result.score),fillOpacity:.95,bubblingMouseEvents:false}).addTo(group);
-  c.marker.bindTooltip(()=>`${esc(c.name)}: ${c.result.score==null?"not scored":c.result.score}`);
+  c.marker.bindTooltip(()=>`${esc(c.name)}: ${c.result.score==null?"not scored":"day "+c.result.score+" / dark "+c.result.dark}`);
   c.marker.on("click",()=>selectCrossing(c.id,false));
 }
 function selectCrossing(id,zoom){
@@ -260,7 +307,8 @@ function renderTable(){
   $("count").textContent=`Crossings (${crossings.length}, ${crossings.filter(c=>c.result&&c.result.score!=null).length} scored)`;
   $("tbody").innerHTML=crossings.map(c=>`<tr data-id="${c.id}" class="${c.id===editingId?"sel":""}">
     <td>${esc(c.name)}${c.lat==null?" <small>(no location)</small>":""}</td>
-    <td><span class="badge" style="background:${colorFor(c.result.score)}">${c.result.score==null?"–":c.result.score}</span></td>
+    <td><span class="badge" style="background:${colorFor(c.result.score)}">${fmt(c.result.score)}</span></td>
+    <td><span class="badge" style="background:${colorFor(c.result.dark)}">${fmt(c.result.dark)}</span></td>
     <td><small>${esc(c.result.note)}</small></td></tr>`).join("");
 }
 $("tbody").onclick=e=>{const tr=e.target.closest("tr"); if(tr) selectCrossing(+tr.dataset.id,true);};
@@ -272,12 +320,15 @@ const ALIASES={
   lat:["lat","latitude","y"], lng:["lon","lng","long","longitude","x"],
   speed:["speedmph","speed","postedspeed","postedspeedmph"], lanes:["totallanes","lanes"],
   median:["medianrefuge","median","refuge"], control:["controltype","control","crossingcontrol"],
-  aadt:["aadt"],
+  aadt:["aadt"], veh:["peakvehpermin","peakvehmin","vehpermin","vehmin","peakhourvehmin"],
+  volume:["volumeclass","volume","volclass"],
   A:["awarenesstreatment","awareness"], R:["raisedcrossing","raised"], F:["rrfb","rapidflashingbeacon"],
   C:["curbextension","curb"], P:["parkingwithin50ft","parking","onstreetparking"],
   Y:["driversyield","yield"], L:["crossinglighting","lighting"],
 };
 const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g,"");
+const normVol = v => { const s=String(v==null?"":v).trim().toLowerCase();
+  return CLASSES.find(c=>c.toLowerCase()===s) || "auto"; };
 $("csvFile").addEventListener("change",e=>{
   const f=e.target.files[0]; if(!f) return;
   Papa.parse(f,{header:true,skipEmptyLines:true,complete:res=>{
@@ -285,45 +336,53 @@ $("csvFile").addEventListener("change",e=>{
     for(const key in ALIASES){ cols[key]=heads.find(h=>ALIASES[key].includes(norm(h))); }
     const missing=["speed","lanes"].filter(k=>!cols[k]);
     if(missing.length){setMsg("CSV is missing required column(s): "+missing.join(", ")+". Use the CSV template.");e.target.value="";return;}
-    let added=0,noLoc=0; const bounds=[];
+    let added=0,noLoc=0,noVol=0; const bounds=[];
     for(const row of res.data){
       const g=k=>cols[k]?row[cols[k]]:"";
       const la=parseFloat(g("lat")), ln=parseFloat(g("lng"));
       const ok=isFinite(la)&&isFinite(ln)&&Math.abs(la)<=90&&Math.abs(ln)<=180;
       const c={id:nextId++,name:String(g("name")||"").trim(),lat:ok?la:null,lng:ok?ln:null,
-        speed:g("speed"),lanes:g("lanes"),median:g("median"),control:g("control")||"Uncontrolled",aadt:g("aadt")};
+        speed:g("speed"),lanes:g("lanes"),median:g("median"),control:g("control")||"Uncontrolled",
+        aadt:g("aadt"),veh:g("veh"),vol:normVol(g("volume"))};
       if(!c.name) c.name="Crossing "+c.id;
       MODS.split("").forEach(k=>c[k]=yes(g(k)));
       if(!ok) noLoc++; else bounds.push([la,ln]);
       crossings.push(c); refreshMarker(c); added++;
+      if(c.result.volume===null && c.result.score===null && /^Volume unknown/.test(c.result.note)) noVol++;
     }
     renderTable();
     if(bounds.length) map.fitBounds(bounds,{padding:[40,40],maxZoom:17});
-    setMsg(`Imported ${added} crossing(s).`+(noLoc?`\n${noLoc} had no valid lat/lon: scored and listed, but not mapped or included in shapefile/GeoJSON.`:""));
+    setMsg(`Imported ${added} crossing(s).`+
+      (noLoc?`\n${noLoc} had no valid lat/lon: scored and listed, but not mapped or included in shapefile/GeoJSON.`:"")+
+      (noVol?`\n${noVol} had no AADT, peak veh/min, or volume_class, so they were not scored.`:""));
     e.target.value="";
   }});
 });
 $("tplBtn").onclick=()=>download("crossing_plts_template.csv",
- "name,lat,lon,speed_mph,total_lanes,median_refuge,control_type,aadt,awareness_treatment,raised_crossing,rrfb,curb_extension,parking_within_50ft,drivers_yield,crossing_lighting\n"+
- "Example 1,39.8283,-98.5795,30,3,No,Uncontrolled,14000,No,No,Yes,Yes,No,No,Yes\n","text/csv");
+ "name,lat,lon,speed_mph,total_lanes,median_refuge,control_type,aadt,peak_veh_per_min,volume_class,awareness_treatment,raised_crossing,rrfb,curb_extension,parking_within_50ft,drivers_yield,crossing_lighting\n"+
+ "Example 1,39.8283,-98.5795,30,3,No,Uncontrolled,14000,,,No,No,Yes,Yes,No,No,Yes\n"+
+ "Example 2,39.8300,-98.5700,25,2,Yes,Uncontrolled,3500,,,No,No,No,No,Yes,No,No\n","text/csv");
 
 // ---------- export ----------
 const yn=b=>b?"Yes":"No";
 function exportRows(){
   return crossings.map(c=>({name:c.name,lat:c.lat,lon:c.lng,speed_mph:c.speed,total_lanes:c.lanes,
-    median_refuge:yn(yes(c.median)),control_type:isControlled(c.control)?"Controlled":"Uncontrolled",aadt:c.aadt,
+    median_refuge:yn(yes(c.median)),control_type:isControlled(c.control)?"Controlled":"Uncontrolled",
+    aadt:c.aadt,peak_veh_per_min:c.veh,volume_class:c.vol==="auto"?"":c.vol,
     awareness_treatment:yn(c.A),raised_crossing:yn(c.R),rrfb:yn(c.F),curb_extension:yn(c.C),
     parking_within_50ft:yn(c.P),drivers_yield:yn(c.Y),crossing_lighting:yn(c.L),
-    crossing_plts:c.result.score==null?"":c.result.score,plts_base:c.result.base==null?"":c.result.base,plts_note:c.result.note}));
+    crossing_plts:c.result.score==null?"":c.result.score,plts_dark:c.result.dark==null?"":c.result.dark,
+    plts_base:c.result.base==null?"":c.result.base,plts_volume:c.result.volume||"",plts_note:c.result.note}));
 }
 function featureCollection(){
-  const num=v=>{const n=parseFloat(v);return isFinite(n)?n:-1;};
+  const n=v=>{const x=toNum(v);return x===null?-1:x;};
   return {type:"FeatureCollection",features:crossings.filter(c=>c.lat!=null).map(c=>({
     type:"Feature",geometry:{type:"Point",coordinates:[c.lng,c.lat]},
-    properties:{name:c.name||"",speed_mph:num(c.speed),lanes:num(c.lanes),median:yn(yes(c.median)),
-      control:isControlled(c.control)?"Controlled":"Uncontrolled",aadt:num(c.aadt),
+    properties:{name:c.name||"",speed_mph:n(c.speed),lanes:n(c.lanes),median:yn(yes(c.median)),
+      control:isControlled(c.control)?"Controlled":"Uncontrolled",aadt:n(c.aadt),veh_min:n(c.veh),
       awareness:yn(c.A),raised:yn(c.R),rrfb:yn(c.F),curb_ext:yn(c.C),parking:yn(c.P),yield:yn(c.Y),lighting:yn(c.L),
-      plts:c.result.score==null?-1:c.result.score,plts_base:c.result.base==null?-1:c.result.base,plts_note:c.result.note}}))};
+      plts:c.result.score==null?-1:c.result.score,plts_dark:c.result.dark==null?-1:c.result.dark,
+      plts_base:c.result.base==null?-1:c.result.base,plts_vol:c.result.volume||"",plts_note:c.result.note}}))};
 }
 function download(name,data,type){
   const blob=data instanceof Blob?data:new Blob([data],{type});
